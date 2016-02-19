@@ -34,6 +34,7 @@ from ansible.release import __version__, __author__
 from ansible import constants as C
 from ansible.errors import AnsibleError
 from ansible.module_utils._text import to_bytes, to_text
+from ansible.plugins import module_utils_loader
 # Must import strategy and use write_locks from there
 # If we import write_locks directly then we end up binding a
 # variable to the object and then it never gets updated.
@@ -407,9 +408,14 @@ class ModuleDepFinder(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _slurp(path):
-    if not os.path.exists(path):
-        raise AnsibleError("imported module support code does not exist at %s" % os.path.abspath(path))
+def _slurp(name, mod_type=None, is_package=False):
+    path = module_utils_loader.find_plugin(name, mod_type=mod_type)
+    if path is None:
+        raise AnsibleError("imported module '%s' support code was not found in any known module_util directories" % name)
+    if is_package:
+        path = os.path.join(path, '__init__.py')
+        if not os.path.exists(path):
+            raise AnsibleError("imported module '%s' support code is a directory, however '%s' does not exist" % (name, path))
     fd = open(path, 'rb')
     data = fd.read()
     fd.close()
@@ -473,8 +479,8 @@ def recursive_finder(name, data, py_module_names, py_module_cache, zf):
                 if len(py_module_name) < idx:
                     break
                 try:
-                    module_info = imp.find_module(py_module_name[-idx],
-                            [os.path.join(_SNIPPET_PATH, *py_module_name[:-idx])])
+                    mod_path = module_utils_loader.find_plugin(py_module_name[0])
+                    module_info = imp.find_module(py_module_name[-idx], [os.path.dirname(mod_path)])
                     break
                 except ImportError:
                     continue
@@ -502,7 +508,7 @@ def recursive_finder(name, data, py_module_names, py_module_cache, zf):
                 if module_info[2][2] == imp.PKG_DIRECTORY:
                     # Read the __init__.py instead of the module file as this is
                     # a python package
-                    py_module_cache[py_module_name + ('__init__',)] = _slurp(os.path.join(os.path.join(_SNIPPET_PATH, *py_module_name), '__init__.py'))
+                    py_module_cache[py_module_name + ('__init__',)] = _slurp(py_module_name[0], is_package=True)
                     normalized_modules.add(py_module_name + ('__init__',))
                 else:
                     py_module_cache[py_module_name] = module_info[0].read()
@@ -515,7 +521,7 @@ def recursive_finder(name, data, py_module_names, py_module_cache, zf):
                 py_pkg_name = py_module_name[:-i] + ('__init__',)
                 if py_pkg_name not in py_module_names:
                     normalized_modules.add(py_pkg_name)
-                    py_module_cache[py_pkg_name] = _slurp('%s.py' % os.path.join(_SNIPPET_PATH, *py_pkg_name))
+                    py_module_cache[py_pkg_name] = _slurp(py_module_name[0])
 
     #
     # iterate through all of the ansible.module_utils* imports that we haven't
@@ -708,7 +714,7 @@ def _find_snippet_imports(module_name, module_data, module_path, module_args, ta
         lines = module_data.split(b'\n')
         for line in lines:
             if REPLACER_WINDOWS in line:
-                ps_data = _slurp(os.path.join(_SNIPPET_PATH, "powershell.ps1"))
+                ps_data = _slurp("powershell.ps1")
                 output.write(ps_data)
                 py_module_names.add((b'powershell',))
                 continue
