@@ -26,13 +26,13 @@ import shlex
 __metaclass__ = type
 
 # import distutils.spawn
-# import os
-# import os.path
+import os
+import os.path
 import subprocess
 # import re
-# 
+#
 # from distutils.version import LooseVersion
-# 
+#
 import ansible.constants as C
 # from ansible.errors import AnsibleError, AnsibleFileNotFound
 # from ansible.module_utils.six.moves import shlex_quote
@@ -107,20 +107,20 @@ class Connection(ConnectionBase):
         # display.vvvvv("STDOUT %s STDERR %s" % (stderr, stderr))
         return (p.returncode, stdout, stderr)
 
-#     def _prefix_login_path(self, remote_path):
-#         ''' Make sure that we put files into a standard path
-#
-#             If a path is relative, then we need to choose where to put it.
-#             ssh chooses $HOME but we aren't guaranteed that a home dir will
-#             exist in any given chroot.  So for now we're choosing "/" instead.
-#             This also happens to be the former default.
-#
-#             Can revisit using $HOME instead if it's a problem
-#         '''
-#         if not remote_path.startswith(os.path.sep):
-#             remote_path = os.path.join(os.path.sep, remote_path)
-#         return os.path.normpath(remote_path)
-#
+    def _prefix_login_path(self, remote_path):
+        ''' Make sure that we put files into a standard path
+
+            If a path is relative, then we need to choose where to put it.
+            ssh chooses $HOME but we aren't guaranteed that a home dir will
+            exist in any given chroot.  So for now we're choosing "/" instead.
+            This also happens to be the former default.
+
+            Can revisit using $HOME instead if it's a problem
+        '''
+        if not remote_path.startswith(os.path.sep):
+            remote_path = os.path.join(os.path.sep, remote_path)
+        return os.path.normpath(remote_path)
+
     @ensure_connect
     def put_file(self, in_path, out_path):
         """ Place a local file located in in_path inside container on out_path """
@@ -138,28 +138,42 @@ class Connection(ConnectionBase):
 
     @ensure_connect
     def fetch_file(self, in_path, out_path):
-        pass
-#         """ Fetch a file from container to local. """
-#         super(Connection, self).fetch_file(in_path, out_path)
-#         display.vvv("FETCH %s TO %s" % (in_path, out_path), host=self._play_context.remote_addr)
-#
-#         in_path = self._prefix_login_path(in_path)
-#         # out_path is the final file path, but docker takes a directory, not a
-#         # file path
-#         out_dir = os.path.dirname(out_path)
-#
-#         args = [self.docker_cmd, "cp", "%s:%s" % (self._play_context.remote_addr, in_path), out_dir]
-#         args = [to_bytes(i, errors='surrogate_or_strict') for i in args]
-#
-#         p = subprocess.Popen(args, stdin=subprocess.PIPE,
-#                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-#         p.communicate()
-#
-#         # Rename if needed
-#         actual_out_path = os.path.join(out_dir, os.path.basename(in_path))
-#         if actual_out_path != out_path:
-#             os.rename(to_bytes(actual_out_path, errors='strict'), to_bytes(out_path, errors='strict'))
-#
+        """ Fetch a file from container to local. """
+        super(Connection, self).fetch_file(in_path, out_path)
+        display.vvv("FETCH %s TO %s" % (in_path, out_path), host=self._play_context.remote_addr)
+
+        in_path = self._prefix_login_path(in_path)
+
+        # Mount container
+        local_cmd = ['buildah', 'mount', self._container_id]
+        local_cmd = [to_bytes(i, errors='surrogate_or_strict') for i in local_cmd]
+        display.vvv("RUN %s" % (local_cmd,), host=self._container_id)
+        p = subprocess.Popen(local_cmd, stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, _ = p.communicate()
+        display.vvvvv("STDOUT %s" % (stdout, ))
+        mountpoint = stdout
+
+        # TODO: Avoid using cp here?
+        try:
+            local_path = os.path.join(mountpoint, in_path)
+            local_cmd = ['cp', '-rvf', local_path, out_path]
+            local_cmd = [to_bytes(i, errors='surrogate_or_strict') for i in local_cmd]
+            display.vvv("RUN %s" % (local_cmd,), host=self._container_id)
+            p = subprocess.Popen(local_cmd, stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            display.vvvvv("STDOUT %s" % (stdout, ))
+        finally:
+            # unmount the directory
+            local_cmd = ['buildah', 'umount', self._container_id]
+            local_cmd = [to_bytes(i, errors='surrogate_or_strict') for i in local_cmd]
+            display.vvv("RUN %s" % (local_cmd,), host=self._container_id)
+            p = subprocess.Popen(local_cmd, stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, _ = p.communicate()
+            display.vvvvv("STDOUT %s" % (stdout, ))
+
     def close(self):
         pass
 #         """ Terminate the connection. Nothing to do for Docker"""
