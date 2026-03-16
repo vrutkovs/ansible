@@ -1,0 +1,14 @@
+inputSet:
+  name: Build_vrutkovs_ansible_1773655497083-push-trigger-input-set
+  identifier: Build_vrutkovs_ansible_1773655497083pushtriggerinputset
+  orgIdentifier: default
+  projectIdentifier: default_project
+  pipeline:
+    identifier: Build_vrutkovs_ansible_1773655497083
+    properties:
+      ci:
+        codebase:
+          build:
+            type: branch
+            spec:
+              branch: <+trigger.branch>
